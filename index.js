@@ -3,12 +3,14 @@ const cors = require('cors');
 const fs = require('fs');
 const path = require('path');
 const session = require('express-session');
+const mongoose = require('mongoose');
 require('dotenv').config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 const secret = process.env.SESSION_SECRET || 'secret_cat';
 const adminPassword = process.env.ADMIN_PASSWORD || 'admin123';
+const mongoUri = process.env.MONGODB_URI;
 
 const CONFIG_FILE = path.join(__dirname, 'config.json');
 const LOCATIONS_FILE = path.join(__dirname, 'last_locations.json');
@@ -27,6 +29,39 @@ app.use(session({
 
 app.use(express.static('public'));
 
+// --- MONGODB SETUP ---
+let isMongo = false;
+if (mongoUri && !mongoUri.includes("USUARIO:PASSWORD")) {
+    mongoose.connect(mongoUri)
+        .then(() => {
+            console.log("✅ Conectado a MongoDB Atlas");
+            isMongo = true;
+            loadConfig(); // Recargar desde DB
+            loadLocations(); // Recargar desde DB
+        })
+        .catch(err => console.error("❌ Error conectando a MongoDB:", err));
+} else {
+    console.log("⚠️ Usando archivos locales para persistencia (Sin MONGODB_URI)");
+}
+
+const ConfigSchema = new mongoose.Schema({
+    deviceId: { type: String, unique: true },
+    name: String,
+    emoji: String
+});
+const LocationSchema = new mongoose.Schema({
+    deviceId: { type: String, unique: true },
+    name: String,
+    emoji: String,
+    lat: Number,
+    lon: Number,
+    timestamp: Number,
+    speed: Number
+});
+
+const ConfigModel = mongoose.model('Config', ConfigSchema);
+const LocationModel = mongoose.model('Location', LocationSchema);
+
 // Middleware de autenticación
 function checkAuth(req, res, next) {
     if (req.session.loggedIn) {
@@ -41,52 +76,79 @@ function checkAuth(req, res, next) {
 }
 
 // Función para cargar configuración
-function loadConfig() {
+async function loadConfig() {
     try {
-        if (fs.existsSync(CONFIG_FILE)) {
+        if (isMongo) {
+            const data = await ConfigModel.find({});
+            const config = {};
+            data.forEach(d => config[d.deviceId] = { name: d.name, emoji: d.emoji });
+            processionConfig = config;
+            return config;
+        } else if (fs.existsSync(CONFIG_FILE)) {
             const data = fs.readFileSync(CONFIG_FILE, 'utf8');
-            return JSON.parse(data);
+            processionConfig = JSON.parse(data);
+            return processionConfig;
         }
     } catch (err) {
         console.error("Error cargando config:", err);
     }
+    processionConfig = {};
     return {};
 }
 
 // Función para cargar ubicaciones persistidas
-function loadLocations() {
+async function loadLocations() {
     try {
-        if (fs.existsSync(LOCATIONS_FILE)) {
+        if (isMongo) {
+            const data = await LocationModel.find({});
+            const locations = {};
+            data.forEach(d => locations[d.deviceId] = {
+                id: d.deviceId, name: d.name, emoji: d.emoji, lat: d.lat, lon: d.lon, timestamp: d.timestamp, speed: d.speed
+            });
+            processions = locations;
+            return locations;
+        } else if (fs.existsSync(LOCATIONS_FILE)) {
             const data = fs.readFileSync(LOCATIONS_FILE, 'utf8');
-            return JSON.parse(data);
+            processions = JSON.parse(data);
+            return processions;
         }
     } catch (err) {
         console.error("Error cargando ubicaciones:", err);
     }
+    processions = {};
     return {};
 }
 
 // Función para guardar ubicaciones
-function saveLocations(locations) {
+async function saveLocations(locations) {
     try {
-        fs.writeFileSync(LOCATIONS_FILE, JSON.stringify(locations, null, 4));
+        if (!isMongo) {
+            fs.writeFileSync(LOCATIONS_FILE, JSON.stringify(locations, null, 4));
+        } else {
+            // MongoDB actualiza por documento, no es necesario hacer nada aquí 
+            // ya que guardamos individualmente en /traccar para evitar loops
+        }
     } catch (err) {
         console.error("Error guardando ubicaciones:", err);
     }
 }
 
 // Función para guardar configuración
-function saveConfig(config) {
+async function saveConfig(config) {
     try {
-        fs.writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 4));
-        processionConfig = config; // Actualizar en memoria
+        if (!isMongo) {
+            fs.writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 4));
+        }
+        processionConfig = config;
     } catch (err) {
         console.error("Error guardando config:", err);
     }
 }
 
-let processionConfig = loadConfig();
-let processions = loadLocations();
+let processionConfig = {};
+let processions = {};
+loadConfig();
+loadLocations();
 
 // --- RUTAS DE AUTENTICACIÓN ---
 
@@ -111,31 +173,43 @@ app.get('/logout', (req, res) => {
 
 // --- ENDPOINTS ADMINISTRACIÓN (PROTEGIDOS) ---
 
-app.get('/admin/config', checkAuth, (req, res) => {
+app.get('/admin/config', checkAuth, async (req, res) => {
+    await loadConfig();
     res.json(processionConfig);
 });
 
-app.post('/admin/config', checkAuth, (req, res) => {
+app.post('/admin/config', checkAuth, async (req, res) => {
     const { deviceId, name, emoji } = req.body;
     if (!deviceId || !name || !emoji) return res.status(400).send("Faltan datos");
 
-    const config = loadConfig();
+    const config = await loadConfig();
     config[deviceId] = { name, emoji };
-    saveConfig(config);
+
+    if (isMongo) {
+        await ConfigModel.findOneAndUpdate({ deviceId }, { name, emoji }, { upsert: true });
+    }
+
+    await saveConfig(config);
     res.send("OK");
 });
 
-app.delete('/admin/config/:id', checkAuth, (req, res) => {
+app.delete('/admin/config/:id', checkAuth, async (req, res) => {
     const id = req.params.id;
-    const config = loadConfig();
+    const config = await loadConfig();
     if (config[id]) {
         delete config[id];
-        saveConfig(config);
+
+        if (isMongo) {
+            await ConfigModel.deleteOne({ deviceId: id });
+            await LocationModel.deleteOne({ deviceId: id });
+        }
+
+        await saveConfig(config);
 
         // También eliminar de las ubicaciones actuales para que desaparezca del mapa
         if (processions[id]) {
             delete processions[id];
-            saveLocations(processions);
+            await saveLocations(processions);
         }
 
         res.send("OK");
@@ -150,7 +224,7 @@ app.get('/admin', checkAuth, (req, res) => {
 
 // --- ENDPOINTS RASTREO ---
 
-app.all('/traccar', (req, res) => {
+app.all('/traccar', async (req, res) => {
     const data = { ...req.query, ...req.body };
 
     let lat = data.lat || data.latitude;
@@ -178,7 +252,7 @@ app.all('/traccar', (req, res) => {
 
         const config = processionConfig[id] || { name: `Dispositivo ${id}`, emoji: "📍" };
 
-        processions[id] = {
+        const updateData = {
             id: id,
             name: config.name,
             emoji: config.emoji,
@@ -188,8 +262,22 @@ app.all('/traccar', (req, res) => {
             speed: parseFloat(speed) || 0
         };
 
+        processions[id] = updateData;
+
+        if (isMongo) {
+            await LocationModel.findOneAndUpdate({ deviceId: id }, {
+                deviceId: id,
+                name: config.name,
+                emoji: config.emoji,
+                lat: parseFloat(lat),
+                lon: parseFloat(lon),
+                timestamp: normalizedTs,
+                speed: parseFloat(speed) || 0
+            }, { upsert: true });
+        }
+
         // Guardar en disco para que sobreviva a reinicios
-        saveLocations(processions);
+        await saveLocations(processions);
 
         console.log(`✅ [OK] ${config.emoji} ${config.name} (${id}) actualizada: ${lat}, ${lon}`);
         res.status(200).send('OK');
@@ -198,12 +286,14 @@ app.all('/traccar', (req, res) => {
     }
 });
 
-app.get('/all-processions', (req, res) => {
+app.get('/all-processions', async (req, res) => {
+    await loadLocations();
     res.json(Object.values(processions));
 });
 
-app.get('/latest-location', (req, res) => {
+app.get('/latest-location', async (req, res) => {
     const id = req.query.id;
+    await loadLocations();
     let target = null;
 
     if (id && processions[id]) {
@@ -220,11 +310,22 @@ app.get('/latest-location', (req, res) => {
     }
 
     const mapsUrl = `https://www.google.com/maps?q=${target.lat},${target.lon}`;
+    const dateStr = new Date(target.timestamp).toLocaleString('es-GT', {
+        timeZone: 'America/Guatemala',
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: true
+    });
+
     res.json({
         status: 'success',
         ...target,
         google_maps: mapsUrl,
-        text: `${target.emoji} Ubicación de: ${target.name}\n📍 Maps: ${mapsUrl}\n⌚ Última actualización: ${new Date(target.timestamp).toLocaleString()}`
+        text: `${target.emoji} Ubicación de: ${target.name}\n📍 Maps: ${mapsUrl}\n⌚ Última actualización:\n${dateStr}`
     });
 });
 
