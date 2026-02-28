@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Monitoreo Multi-Procesiones</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: sans-serif;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+
+        header {
+            background: #4a148c;
+            color: white;
+            padding: 15px;
+            text-align: center;
+            z-index: 1000;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        header h1 {
+            margin: 0;
+            font-size: 1.2rem;
+        }
+
+        #map {
+            flex-grow: 1;
+            z-index: 1;
+        }
+
+        .legend {
+            background: white;
+            padding: 10px;
+            border-radius: 8px;
+            position: absolute;
+            top: 80px;
+            right: 20px;
+            z-index: 1000;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+            max-width: 250px;
+        }
+
+        .procession-item {
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            font-size: 0.9rem;
+            cursor: pointer;
+            padding: 5px;
+            border-radius: 4px;
+        }
+
+        .procession-item:hover {
+            background: #f0f0f0;
+        }
+
+        .emoji {
+            font-size: 1.5rem;
+            margin-right: 10px;
+        }
+
+        .time {
+            font-size: 0.7rem;
+            color: #666;
+            display: block;
+        }
+    </style>
+</head>
+
+<body>
+
+    <header>
+        <h1>🚩 Monitoreo de Procesiones</h1>
+        <div id="active-count" style="font-size: 0.9rem;">0 procesiones activas</div>
+    </header>
+
+    <div id="map"></div>
+
+    <div class="legend">
+        <h4 style="margin-top:0">Procesiones en Vivo</h4>
+        <div id="procession-list">Esperando datos...</div>
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script>
+        const map = L.map('map').setView([14.6349, -90.5069], 13);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OSM' }).addTo(map);
+
+        const markers = {};
+
+        function updateAll() {
+            fetch('/all-processions')
+                .then(res => res.json())
+                .then(data => {
+                    const listEl = document.getElementById('procession-list');
+                    document.getElementById('active-count').innerText = `${data.length} procesiones activas`;
+
+                    if (data.length === 0) {
+                        listEl.innerHTML = "Ninguna procesión activa.";
+                        // Eliminar todos los marcadores si no hay datos
+                        for (const id in markers) {
+                            map.removeLayer(markers[id]);
+                            delete markers[id];
+                        }
+                        return;
+                    }
+
+                    const activeIds = new Set(data.map(p => p.id));
+
+                    // Eliminar marcadores que ya no están activos
+                    for (const id in markers) {
+                        if (!activeIds.has(id)) {
+                            map.removeLayer(markers[id]);
+                            delete markers[id];
+                        }
+                    }
+
+                    listEl.innerHTML = "";
+                    data.forEach(p => {
+                        const latlng = [p.lat, p.lon];
+
+                        // Actualizar o crear marcador
+                        if (markers[p.id]) {
+                            markers[p.id].setLatLng(latlng);
+                        } else {
+                            // Crear marcador con label
+                            const icon = L.divIcon({
+                                html: `<div style="font-size: 24px; text-shadow: 0 0 3px white;">${p.emoji}</div>`,
+                                className: 'custom-div-icon',
+                                iconSize: [30, 30],
+                                iconAnchor: [15, 15]
+                            });
+                            markers[p.id] = L.marker(latlng, { icon }).addTo(map);
+                        }
+
+                        markers[p.id].bindPopup(`<b>${p.emoji} ${p.name}</b><br>Velocidad: ${p.speed} km/h<br><small>${new Date(p.timestamp).toLocaleString()}</small>`);
+
+                        // Agregar a la leyenda lateral
+                        const item = document.createElement('div');
+                        item.className = 'procession-item';
+                        item.innerHTML = `
+                        <span class="emoji">${p.emoji}</span>
+                        <div>
+                            <strong>${p.name}</strong>
+                            <span class="time">${new Date(p.timestamp).toLocaleTimeString()}</span>
+                        </div>
+                    `;
+                        item.onclick = () => map.setView(latlng, 16);
+                        listEl.appendChild(item);
+                    });
+                });
+        }
+
+        setInterval(updateAll, 5000);
+        updateAll();
+    </script>
+
+</body>
+
+</html>

@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Panel de Administración - Procesiones</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f0f2f5;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: white;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 30px;
+            border-bottom: 2px solid #eee;
+            padding-bottom: 15px;
+        }
+
+        h1 {
+            margin: 0;
+            color: #4a148c;
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+            color: #555;
+        }
+
+        input {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            box-sizing: border-box;
+        }
+
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: 0.3s;
+        }
+
+        .btn-primary {
+            background: #6a1b9a;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #4a148c;
+        }
+
+        .btn-danger {
+            background: #e53935;
+            color: white;
+            padding: 5px 10px;
+            font-size: 0.8rem;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+
+        th,
+        td {
+            text-align: left;
+            padding: 12px;
+            border-bottom: 1px solid #eee;
+        }
+
+        th {
+            background: #f8f9fa;
+        }
+
+        .emoji-preview {
+            font-size: 1.5rem;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="container">
+        <header>
+            <h1>⚙️ Admin Dashboard</h1>
+            <div>
+                <a href="/" style="text-decoration: none; color: #666;">Ver Mapa →</a>
+                <a href="/logout" class="btn btn-danger" style="margin-left: 10px; text-decoration: none;">Cerrar
+                    Sesión</a>
+            </div>
+        </header>
+
+        <div style="background: #f9f9f9; padding: 20px; border-radius: 8px; margin-bottom: 30px;">
+            <h3>Añadir / Editar Dispositivo</h3>
+            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr auto; gap: 10px; align-items: end;">
+                <div class="form-group">
+                    <label>ID Dispositivo (Traccar)</label>
+                    <input type="text" id="deviceId" placeholder="Ej: Monitor1">
+                </div>
+                <div class="form-group">
+                    <label>Nombre Procesión</label>
+                    <input type="text" id="name" placeholder="Ej: Señor de las Misericordias">
+                </div>
+                <div class="form-group">
+                    <label>Emoji</label>
+                    <input type="text" id="emoji" placeholder="Ej: ✝️">
+                </div>
+                <button class="btn btn-primary" onclick="saveConfig()">Guardar</button>
+            </div>
+        </div>
+
+        <h3>Dispositivos Configurados</h3>
+        <table id="configTable">
+            <thead>
+                <tr>
+                    <th>Emoji</th>
+                    <th>ID</th>
+                    <th>Nombre</th>
+                    <th>Acciones</th>
+                </tr>
+            </thead>
+            <tbody>
+                <!-- Se llena con JS -->
+            </tbody>
+        </table>
+    </div>
+
+    <script>
+        async function loadTable() {
+            const res = await fetch('/admin/config');
+            if (res.status === 401) {
+                window.location.href = '/login';
+                return;
+            }
+            const config = await res.json();
+            const tbody = document.querySelector('#configTable tbody');
+            tbody.innerHTML = '';
+
+            for (const [id, data] of Object.entries(config)) {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                <td class="emoji-preview">${data.emoji}</td>
+                <td><code>${id}</code></td>
+                <td>${data.name}</td>
+                <td>
+                    <button class="btn" style="background:#eee" onclick="editDevice('${id}', '${data.name}', '${data.emoji}')">Editar</button>
+                    <button class="btn btn-danger" onclick="deleteDevice('${id}')">Eliminar</button>
+                </td>
+            `;
+                tbody.appendChild(tr);
+            }
+        }
+
+        async function saveConfig() {
+            const deviceId = document.getElementById('deviceId').value;
+            const name = document.getElementById('name').value;
+            const emoji = document.getElementById('emoji').value;
+
+            if (!deviceId || !name || !emoji) return alert("Completa todos los campos");
+
+            await fetch('/admin/config', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ deviceId, name, emoji })
+            });
+
+            document.getElementById('deviceId').value = '';
+            document.getElementById('name').value = '';
+            document.getElementById('emoji').value = '';
+            loadTable();
+        }
+
+        async function deleteDevice(id) {
+            if (!confirm(`¿Eliminar el dispositivo ${id}?`)) return;
+            await fetch(`/admin/config/${id}`, { method: 'DELETE' });
+            loadTable();
+        }
+
+        function editDevice(id, name, emoji) {
+            document.getElementById('deviceId').value = id;
+            document.getElementById('name').value = name;
+            document.getElementById('emoji').value = emoji;
+        }
+
+        loadTable();
+    </script>
+
+</body>
+
+</html>
