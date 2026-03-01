@@ -4,6 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const session = require('express-session');
 const mongoose = require('mongoose');
+const fetch = require('node-fetch');
 require('dotenv').config();
 
 const app = express();
@@ -150,6 +151,43 @@ let processions = {};
 loadConfig();
 loadLocations();
 
+const addressCache = {};
+
+// Función para obtener dirección legible (Reverse Geocoding)
+async function getAddress(lat, lon) {
+    if (!lat || !lon) return "Coordenadas no disponibles";
+    const key = `${parseFloat(lat).toFixed(5)},${parseFloat(lon).toFixed(5)}`;
+    if (addressCache[key]) return addressCache[key];
+    try {
+        const response = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&zoom=18&addressdetails=1`, {
+            headers: { 'User-Agent': 'ProcesionTracking/1.0 (migue@example.com)' }
+        });
+        const text = await response.text();
+        let data;
+        try {
+            data = JSON.parse(text);
+        } catch (e) {
+            console.warn("⚠️ Nominatim no devolvió JSON");
+            return "Dirección no disponible";
+        }
+        if (data && data.display_name) {
+            // Simplificar la dirección para que sea más legible (Calle, Zona, Ciudad)
+            const addr = data.address;
+            const parts = [];
+            if (addr.road) parts.push(addr.road);
+            if (addr.neighbourhood || addr.suburb) parts.push(addr.neighbourhood || addr.suburb);
+            if (addr.city || addr.town) parts.push(addr.city || addr.town);
+
+            const result = parts.length > 0 ? parts.join(', ') : data.display_name;
+            addressCache[key] = result;
+            return result;
+        }
+    } catch (err) {
+        console.error("Error en Geocoding:", err);
+    }
+    return "Dirección no disponible";
+}
+
 // --- RUTAS DE AUTENTICACIÓN ---
 
 app.get('/login', (req, res) => {
@@ -288,7 +326,14 @@ app.all('/traccar', async (req, res) => {
 
 app.get('/all-processions', async (req, res) => {
     await loadLocations();
-    res.json(Object.values(processions));
+    const list = Object.values(processions);
+
+    // Añadir direcciones de forma asíncrona (con el cache no debería tardar)
+    const listWithAddresses = await Promise.all(list.map(async (p) => {
+        return { ...p, address: await getAddress(p.lat, p.lon) };
+    }));
+
+    res.json(listWithAddresses);
 });
 
 app.get('/latest-location', async (req, res) => {
@@ -310,6 +355,7 @@ app.get('/latest-location', async (req, res) => {
     }
 
     const mapsUrl = `https://www.google.com/maps?q=${target.lat},${target.lon}`;
+    const address = await getAddress(target.lat, target.lon);
     const dateStr = new Date(target.timestamp).toLocaleString('es-GT', {
         timeZone: 'America/Guatemala',
         day: '2-digit',
@@ -323,8 +369,9 @@ app.get('/latest-location', async (req, res) => {
     res.json({
         status: 'success',
         ...target,
+        address: address,
         google_maps: mapsUrl,
-        text: `${target.emoji} Ubicación de: ${target.name}\n📍 Maps: ${mapsUrl}\n⌚ Última actualización:\n${dateStr}`
+        text: `${target.emoji} Ubicación de: ${target.name}\n🏠 Dirección: ${address}\n📍 Maps: ${mapsUrl}\n⌚ Última actualización:\n${dateStr}`
     });
 });
 

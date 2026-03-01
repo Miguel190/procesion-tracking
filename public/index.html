@@ -145,7 +145,7 @@
                         const timeOptions = { timeZone: 'America/Guatemala', hour: '2-digit', minute: '2-digit', hour12: false };
                         const fullOptions = { ...timeOptions, day: '2-digit', month: '2-digit', year: 'numeric' };
 
-                        markers[p.id].bindPopup(`<b>${p.emoji} ${p.name}</b><br>Velocidad: ${p.speed} km/h<br><small>${new Date(p.timestamp).toLocaleString('es-GT', fullOptions)}</small>`);
+                        markers[p.id].bindPopup(`<b>${p.emoji} ${p.name}</b><br>${p.address || ''}<br>Velocidad: ${p.speed} km/h<br><small>${new Date(p.timestamp).toLocaleString('es-GT', fullOptions)}</small>`);
 
                         // Agregar a la leyenda lateral
                         const item = document.createElement('div');
