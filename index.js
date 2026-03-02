@@ -159,9 +159,28 @@ async function init() {
     // 1. Intentar conectar a MongoDB Atlas
     if (mongoUri && !mongoUri.includes("USUARIO:PASSWORD")) {
         try {
-            // Log censurado para depuración
-            const maskedUri = mongoUri.replace(/:([^@]+)@/, ":****@");
+            // Log más preciso para detectar errores de formato (sin revelar la contraseña)
+            let maskedUri = "URI malformada";
+            if (mongoUri.includes('@')) {
+                try {
+                    const url = new URL(mongoUri);
+                    maskedUri = `${url.protocol}//${url.username}:****@${url.host}${url.pathname}${url.search}`;
+                } catch (e) {
+                    // Fallback si URL falla
+                    const parts = mongoUri.split('@');
+                    maskedUri = `${parts[0].split(':')[0]}:****@${parts[1]}`;
+                }
+            }
             console.log(`📡 Intentando conectar a: ${maskedUri}`);
+
+            if (!mongoUri.startsWith("mongodb+srv://")) {
+                console.warn("⚠️ Advertencia: El MONGODB_URI debería empezar con 'mongodb+srv://' (con dos barras)");
+            }
+
+            // Check for brackets in password (common mistake)
+            if (mongoUri.includes("<") || mongoUri.includes(">")) {
+                console.warn("⚠️ Advertencia: Detectamos caracteres '<' o '>' en tu URI. Asegúrate de haber quitado los corchetes de la contraseña de Atlas.");
+            }
 
             // Mongoose connection with timeout to avoid long hangs
             await mongoose.connect(mongoUri, { serverSelectionTimeoutMS: 5000 });
@@ -262,6 +281,8 @@ async function init() {
 
     app.all('/traccar', async (req, res) => {
         const data = { ...req.query, ...req.body };
+        console.log("📥 Datos recibidos en /traccar:", JSON.stringify(data));
+
         let lat = data.lat || data.latitude;
         let lon = data.lon || data.longitude || data.lng;
         let id = data.id || data.deviceid || data.userId || data.device_id;
