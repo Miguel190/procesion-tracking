@@ -5,6 +5,7 @@ const path = require('path');
 const session = require('express-session');
 const mongoose = require('mongoose');
 const fetch = require('node-fetch');
+const { MongoStore } = require('connect-mongo');
 require('dotenv').config();
 
 const app = express();
@@ -21,28 +22,46 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // Configuración de sesión
-app.use(session({
+const sessionConfig = {
     secret: secret,
     resave: false,
     saveUninitialized: false,
     cookie: { maxAge: 24 * 60 * 60 * 1000 } // 24 horas
-}));
+};
+
+if (mongoUri && !mongoUri.includes("USUARIO:PASSWORD")) {
+    sessionConfig.store = MongoStore.create({
+        mongoUrl: mongoUri,
+        ttl: 24 * 60 * 60 // 1 día
+    });
+}
+
+app.use(session(sessionConfig));
 
 app.use(express.static('public'));
 
 // --- MONGODB SETUP ---
 let isMongo = false;
-if (mongoUri && !mongoUri.includes("USUARIO:PASSWORD")) {
-    mongoose.connect(mongoUri)
-        .then(() => {
+
+async function connectDB() {
+    if (mongoUri && !mongoUri.includes("USUARIO:PASSWORD")) {
+        try {
+            await mongoose.connect(mongoUri);
             console.log("✅ Conectado a MongoDB Atlas");
             isMongo = true;
-            loadConfig(); // Recargar desde DB
-            loadLocations(); // Recargar desde DB
-        })
-        .catch(err => console.error("❌ Error conectando a MongoDB:", err));
-} else {
-    console.log("⚠️ Usando archivos locales para persistencia (Sin MONGODB_URI)");
+            await loadConfig(); // Cargar desde DB
+            await loadLocations(); // Cargar desde DB
+        } catch (err) {
+            console.error("❌ Error conectando a MongoDB:", err);
+            console.log("⚠️ Fallback: Usando archivos locales para persistencia temporal");
+            await loadConfig(); // Intentar cargar desde archivos locales si falla Mongo
+            await loadLocations();
+        }
+    } else {
+        console.log("⚠️ Usando archivos locales para persistencia (Sin MONGODB_URI)");
+        await loadConfig();
+        await loadLocations();
+    }
 }
 
 const ConfigSchema = new mongoose.Schema({
@@ -148,8 +167,7 @@ async function saveConfig(config) {
 
 let processionConfig = {};
 let processions = {};
-loadConfig();
-loadLocations();
+// Eliminamos las llamadas directas aquí, se llamarán dentro de init()
 
 const addressCache = {};
 
@@ -379,10 +397,16 @@ app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-app.listen(PORT, () => {
-    console.log(`\n🚀 Sistema Multi-Procesiones corriendo en puerto ${PORT}`);
-    console.log(`--------------------------------------------------------`);
-    console.log(`Público: http://localhost:${PORT}`);
-    console.log(`Admin:   http://localhost:${PORT}/admin`);
-    console.log(`--------------------------------------------------------\n`);
-});
+async function init() {
+    await connectDB();
+
+    app.listen(PORT, () => {
+        console.log(`\n🚀 Sistema Multi-Procesiones corriendo en puerto ${PORT}`);
+        console.log(`--------------------------------------------------------`);
+        console.log(`Público: http://localhost:${PORT}`);
+        console.log(`Admin:   http://localhost:${PORT}/admin`);
+        console.log(`--------------------------------------------------------\n`);
+    });
+}
+
+init();
