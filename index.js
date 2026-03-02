@@ -29,32 +29,45 @@ const sessionConfig = {
     cookie: { maxAge: 24 * 60 * 60 * 1000 } // 24 horas
 };
 
+// --- MONGODB SETUP ---
+let isMongo = false;
+let mongoClientPromise = null;
+
 if (mongoUri && !mongoUri.includes("USUARIO:PASSWORD")) {
+    // Definimos la promesa de conexión una sola vez
+    mongoClientPromise = mongoose.connect(mongoUri)
+        .then(m => {
+            console.log("✅ Conectado a MongoDB Atlas");
+            isMongo = true;
+            return m.connection.getClient();
+        })
+        .catch(err => {
+            console.error("❌ Error de autenticación o conexión en MongoDB Atlas:", err.message);
+            console.log("⚠️ Fallback: Usando archivos locales para persistencia temporal");
+            isMongo = false;
+            // No dejamos que la promesa principal "explote" si falla la conexión
+            // Pero retornamos null para que el session store sepa que no hay DB
+            return null;
+        });
+
     sessionConfig.store = MongoStore.create({
-        mongoUrl: mongoUri,
+        clientPromise: mongoClientPromise,
         ttl: 24 * 60 * 60 // 1 día
     });
 }
 
 app.use(session(sessionConfig));
-
 app.use(express.static('public'));
 
-// --- MONGODB SETUP ---
-let isMongo = false;
-
 async function connectDB() {
-    if (mongoUri && !mongoUri.includes("USUARIO:PASSWORD")) {
-        try {
-            await mongoose.connect(mongoUri);
-            console.log("✅ Conectado a MongoDB Atlas");
-            isMongo = true;
-            await loadConfig(); // Cargar desde DB
-            await loadLocations(); // Cargar desde DB
-        } catch (err) {
-            console.error("❌ Error conectando a MongoDB:", err);
-            console.log("⚠️ Fallback: Usando archivos locales para persistencia temporal");
-            await loadConfig(); // Intentar cargar desde archivos locales si falla Mongo
+    if (mongoClientPromise) {
+        await mongoClientPromise;
+        if (isMongo) {
+            await loadConfig();
+            await loadLocations();
+        } else {
+            // Fallback si la conexión falló
+            await loadConfig();
             await loadLocations();
         }
     } else {
