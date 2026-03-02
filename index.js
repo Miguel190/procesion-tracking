@@ -159,6 +159,10 @@ async function init() {
     // 1. Intentar conectar a MongoDB Atlas
     if (mongoUri && !mongoUri.includes("USUARIO:PASSWORD")) {
         try {
+            // Log censurado para depuración
+            const maskedUri = mongoUri.replace(/:([^@]+)@/, ":****@");
+            console.log(`📡 Intentando conectar a: ${maskedUri}`);
+
             // Mongoose connection with timeout to avoid long hangs
             await mongoose.connect(mongoUri, { serverSelectionTimeoutMS: 5000 });
             console.log("✅ Conectado a MongoDB Atlas");
