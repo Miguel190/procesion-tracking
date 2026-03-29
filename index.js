@@ -123,20 +123,39 @@ async function getAddress(lat, lon) {
         try {
             data = JSON.parse(text);
         } catch (e) {
-            return "Dirección no disponible";
+            return `Lat: ${parseFloat(lat).toFixed(4)}, Lon: ${parseFloat(lon).toFixed(4)}`;
         }
-        if (data && data.display_name) {
+        if (data && data.address) {
             const addr = data.address;
             const parts = [];
-            if (addr.road) parts.push(addr.road);
-            if (addr.neighbourhood || addr.suburb) parts.push(addr.neighbourhood || addr.suburb);
-            if (addr.city || addr.town) parts.push(addr.city || addr.town);
-            const result = parts.length > 0 ? parts.join(', ') : data.display_name;
+            
+            let street = addr.road || '';
+            if (street && addr.house_number) {
+                street += ` ${addr.house_number}`;
+            }
+            if (street) parts.push(street);
+
+            let zone = addr.neighbourhood || addr.suburb || addr.city_district || addr.quarter;
+            if (zone) parts.push(zone);
+
+            let city = addr.city || addr.town || addr.village || addr.municipality;
+            if (city) parts.push(city);
+
+            let result = parts.length > 0 ? parts.join(', ') : data.display_name;
+            if (!result) result = `Coordenadas: ${parseFloat(lat).toFixed(4)}, ${parseFloat(lon).toFixed(4)}`;
+            
             addressCache[key] = result;
             return result;
+        } else if (data && data.display_name) {
+            addressCache[key] = data.display_name;
+            return data.display_name;
+        } else {
+            // Si Nominatim no encuentra dirección en esas coordenadas, mostrar al menos las coordenadas en vez de un texto vacío
+            const fallback = `Lat: ${parseFloat(lat).toFixed(4)}, Lon: ${parseFloat(lon).toFixed(4)}`;
+            return fallback;
         }
     } catch (err) { }
-    return "Dirección no disponible";
+    return `Lat: ${parseFloat(lat).toFixed(4)}, Lon: ${parseFloat(lon).toFixed(4)}`;
 }
 
 function checkAuth(req, res, next) {
