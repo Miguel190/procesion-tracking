@@ -73,6 +73,42 @@
             color: #666;
             display: block;
         }
+
+        .custom-div-icon {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            position: relative;
+        }
+
+        .radar-pulse {
+            position: absolute;
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            background: rgba(106, 27, 154, 0.1);
+            border: 1px solid rgba(106, 27, 154, 0.6);
+            z-index: -1;
+            overflow: hidden;
+            box-shadow: 0 0 15px rgba(106, 27, 154, 0.4);
+        }
+
+        .radar-pulse::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            border-radius: 50%;
+            background: conic-gradient(from 0deg, transparent 70%, rgba(106, 27, 154, 0.8) 100%);
+            animation: radar-sweep 2s linear infinite;
+        }
+
+        @keyframes radar-sweep {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
     </style>
 </head>
 
@@ -134,7 +170,7 @@
                         } else {
                             // Crear marcador con label
                             const icon = L.divIcon({
-                                html: `<div style="font-size: 24px; text-shadow: 0 0 3px white;">${p.emoji}</div>`,
+                                html: `<div class="radar-pulse"></div><div style="font-size: 24px; text-shadow: 0 0 5px white, 0 0 10px white; position: relative; z-index: 1;">${p.emoji}</div>`,
                                 className: 'custom-div-icon',
                                 iconSize: [30, 30],
                                 iconAnchor: [15, 15]
